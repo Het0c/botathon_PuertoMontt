@@ -1,5 +1,7 @@
 export type DataConfig = { mode: 'demo' } | { mode: 'supabase'; url: string; key: string } | { mode: 'error'; message: string };
 export function resolveConfig(env: Record<string, string | undefined>): DataConfig {
+  const calc = env.VITE_CALC_API_URL?.trim();
+  if(calc){try{const u=new URL(calc);if(u.protocol!=='https:'&&!(u.protocol==='http:'&&['localhost','127.0.0.1'].includes(u.hostname)))throw new Error();}catch{return {mode:'error',message:'La API de cálculo debe usar HTTPS; HTTP solo en localhost.'};}}
   const mode = env.VITE_DATA_MODE;
   const url = env.VITE_SUPABASE_URL?.trim();
   const key = env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();

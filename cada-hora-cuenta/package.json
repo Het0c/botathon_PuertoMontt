@@ -1,6 +1,6 @@
 {
   "name": "cada-hora-cuenta",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "api": "node scripts/python.mjs -m server.app",
+    "test:python": "node scripts/python.mjs -m unittest discover -s tests_python -v"
   },
   "dependencies": {
     "@fontsource/dm-sans": "5.2.8",

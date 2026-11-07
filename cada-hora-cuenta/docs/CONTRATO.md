@@ -1,8 +1,8 @@
 # Contrato de resultados del equipo Python · v1
 
-React recibe un **JSON ya limpio y calculado**. No lee los Excel BUK/SIC, no transforma las hojas del traductor y no aplica fórmulas de planificación. La limpieza y la exportación de este formato las implementará el equipo en Python. Blue Prism orquesta el proceso del desafío; el equipo define y valida su etapa de cálculo.
+El camino principal v0.3 es **Blue Prism → libro plano del traductor → API de la aplicación**. El adaptador lee Dotacion_Mes, Param_*, entradas humanas y excepciones; el motor calcula este JSON de resultados. React muestra y revisa el resultado. Se conserva la carga directa del JSON como alternativa. La limpieza de los dos crudos sigue en bot_traductor.py, sin reescribirlo.
 
-El traductor existente en la raíz genera un Excel intermedio con tablas planas. Ese archivo todavía no es el JSON consumido por esta web: el enlace entre ambos queda a cargo del equipo.
+El traductor existente en la raíz genera un Excel intermedio con tablas planas. La API ya adapta ese archivo a los resultados; el equipo debe ejecutar y validar su orquestación Blue Prism en la VM.
 
 ```json
 {
@@ -34,7 +34,7 @@ Cada campo del ejemplo es obligatorio. El documento no admite otros campos. Los 
 
 Se admite entre 1 y 20.000 filas, con máximo 10 MB por archivo. La clave única es profesional + instituto + área + cargo + mes. El período de esta base es 2026. Las horas contratadas deben conciliar con directa + indirecta + NAS + ausencias (tolerancia 0,01 h); la meta no puede superar el plan y `planned` debe sumar directa e indirecta. Estas verificaciones comprueban el contrato y sus identidades, no certifican las reglas institucionales.
 
-Python entrega los resultados de todo el plan vigente, incluidos los meses históricos que corresponda conservar. Cada revisión es un snapshot completo; React y Supabase no fusionan contratos ni recalculan meses. La política de vigencias, tramos, redondeo, calendario y asignaciones se valida contra el kit en el proceso de cálculo del equipo.
+La API entrega el plan completo y conserva meses previos a cambios contractuales cuando las reglas no cambian. Un cambio de parámetros recalcula el año y crea otra revisión. Supabase conserva snapshots completos y el último aprobado; las fórmulas del motor aún tienen diferencias que cerrar con el kit. Ver REGLAS.md y VALIDACION.md.
 
 `actual: 0` significa cero observado; `actual: null`, ausencia de un SIC atribuible a esa fila. Si SIC no distingue cargos o áreas, Python debe evitar duplicarlo entre filas, asignándolo solo cuando el cruce sea inequívoco o entregando null. El resumen suma los realizados atribuidos a las filas.
 

@@ -26,6 +26,7 @@ beforeAll(async()=>{
     grant usage on schema public to authenticated,anon;`);
   for(const id of Object.values(ids))await db.query('insert into auth.users values($1::uuid)',[id]);
   await db.exec(readFileSync(new URL('../supabase/migrations/202611070001_plan_reviews.sql',import.meta.url),'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/202611070002_calculation_parameters.sql',import.meta.url),'utf8'));
   for(const role of ['editor','reviewer','viewer'] as const)await db.query('insert into public.plan_members values($1::uuid,$2)',[ids[role],role]);
 },30000);
 beforeEach(async()=>{await db.exec('delete from public.plan_audit_logs;delete from public.plan_publication;delete from public.plan_revisions;');});
@@ -86,6 +87,14 @@ describe('Migración PostgreSQL y políticas de Supabase',()=>{
     await expect(review(first.id)).rejects.toThrow('anterior');
     await expect(review(newer.id,'rejected')).rejects.toThrow('resuelta');
     expect((await db.query<any>('select revision_id from plan_publication')).rows[0].revision_id).toBe(newer.id);
+  });
+  it('registra versiones de parámetros inmutables con rol de editor',async()=>{
+    const version='a'.repeat(64),params={Param_Generales:[],Param_Distribucion_Cargo:[],Param_Semanas_Habiles:[],politicas:{}};
+    await asUser('editor','select save_calculation_parameters($1,$2::jsonb)',[version,JSON.stringify(params)]);
+    expect((await asUser('viewer','select * from plan_parameter_sets')).rows).toHaveLength(1);
+    await expect(asUser('viewer','select save_calculation_parameters($1,$2::jsonb)',[version,JSON.stringify(params)])).rejects.toThrow('rol');
+    await expect(asUser('editor','update plan_parameter_sets set parameters=parameters')).rejects.toThrow('permission');
+    await expect(asUser('editor','select save_calculation_parameters($1,$2::jsonb)',[version,JSON.stringify({...params,politicas:{changed:true}})])).rejects.toThrow('inmutable');
   });
   it('anon no puede leer resultados ni invocar la escritura',async()=>{
     await db.exec('set role anon');
