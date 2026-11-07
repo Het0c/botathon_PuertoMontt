@@ -1,0 +1,142 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Activity, ArrowDownToLine, ArrowRight, CalendarDays, CheckCircle2, ChevronRight,
+  Clock3, Database, FileSpreadsheet, FolderClock, GitBranch, LayoutDashboard,
+  LoaderCircle, RefreshCw, Search, ShieldCheck, Upload, Users, X, LogOut, ClipboardCheck } from 'lucide-react';
+import { config, repository, supabase } from './client';
+import { canReview, canSubmit, type Snapshot, type PlanRow, type Revision, type Workspace } from './types';
+import { ContractError, readPlanFile, validateDocument, toCsv, downloadBlob } from './validation';
+
+const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const n = (v: number, digits = 0) => new Intl.NumberFormat('es-CL', { maximumFractionDigits: digits }).format(v);
+const pct = (v: number | null) => v === null ? 'Sin jornada' : `${n(v * 100, 1)}%`;
+const sum = (rows: PlanRow[], field: keyof PlanRow) => rows.reduce((s,r) => s + Number(r[field] || 0), 0);
+const stamp = (v: string) => new Date(v).toLocaleString('es-CL', { timeZone: 'America/Santiago', dateStyle: 'short', timeStyle: 'short' });
+const statusLabel = {pending:'Pendiente',approved:'Aprobada',rejected:'Rechazada'};
+const navigation = [
+  { id:'dashboard',label:'Resumen nacional',icon:LayoutDashboard },
+  { id:'people',label:'Dotación y metas',icon:Users },
+  { id:'import',label:'Cargar resultados',icon:Upload },
+  { id:'revisions',label:'Revisiones',icon:ClipboardCheck },
+  { id:'logs',label:'Registro de actividad',icon:FolderClock },
+];
+const EMPTY: Workspace = {current:null,revisions:[],logs:[],role:'viewer',user:''};
+const sample = (name:string) => `${import.meta.env.BASE_URL}examples/${name}`;
+
+export default function App() {
+  const [tab,setTab]=useState('dashboard');
+  const [workspace,setWorkspace]=useState<Workspace>(EMPTY);
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [needsLogin,setNeedsLogin]=useState(false);
+  const [email,setEmail]=useState('');
+  const [password,setPassword]=useState('');
+  const [notice,setNotice]=useState<{text:string;error?:boolean}|null>(null);
+  const [institute,setInstitute]=useState('');
+  const [area,setArea]=useState('');
+  const [month,setMonth]=useState('');
+  const [query,setQuery]=useState('');
+  const [file,setFile]=useState<File>();
+  const [inspecting,setInspecting]=useState<{revision:Revision;plan:Snapshot}>();
+  const [comment,setComment]=useState('');
+  const demo=config.mode==='demo';
+  const snapshot=workspace.current || {version:null,rows:[]};
+  const isEditor=canSubmit(workspace.role);
+  const isReviewer=canReview(workspace.role);
+
+  async function refresh() {
+    if (!repository) throw new Error(config.mode==='error'?config.message:'Configuración incompleta.');
+    if (supabase) {
+      const {data,error}=await supabase.auth.getSession();
+      if(error) throw error;
+      if(!data.session) {setNeedsLogin(true);setWorkspace(EMPTY);return;}
+    }
+    const loaded=await repository.load();setWorkspace(loaded);setNeedsLogin(false);
+  }
+  useEffect(()=>{refresh().catch(e=>setNotice({text:e.message,error:true})).finally(()=>setLoading(false));},[]);
+  async function action(fn:()=>Promise<void>) {
+    setBusy(true);setNotice(null);
+    try{await fn();}catch(e){setNotice({text:e instanceof Error?e.message:String(e),error:true});}
+    finally{setBusy(false);}
+  }
+  async function loadDemo() {
+    const response=await fetch(sample('plan_demo_2026.json'));
+    if(!response.ok) throw new Error('No se pudo cargar el ejemplo.');
+    const r=await repository!.submit(validateDocument(await response.json()),'Demo ficticia 2026');
+    if(r.status==='pending') await repository!.review(r.id,'approved','Plan de demostración; no corresponde al kit oficial.');
+    await refresh();
+  }
+  async function review(decision:'approved'|'rejected') {
+    if(!inspecting) return;
+    await repository!.review(inspecting.revision.id,decision,comment);
+    await refresh();setInspecting(undefined);setComment('');
+    setNotice({text:decision==='approved'?'Revisión aprobada. El resumen muestra el nuevo plan.':'Revisión rechazada. El último plan aprobado se conserva.'});
+  }
+  const filtered=useMemo(()=>snapshot.rows.filter(r=>(!institute||r.institute===institute)&&(!area||r.area===area)&&(!month||r.month===month)&&(!query||`${r.professional_id} ${r.role}`.toLowerCase().includes(query.toLowerCase()))),[snapshot.rows,institute,area,month,query]);
+  const institutions=[...new Set(snapshot.rows.map(r=>r.institute))].sort();
+  const areas=[...new Set(snapshot.rows.map(r=>r.area))].sort();
+  const planned=sum(filtered,'planned'),contracted=sum(filtered,'contracted'),direct=sum(filtered,'direct');
+  const actual=sum(filtered.filter(r=>r.actual!==null),'actual');
+  const professionals=new Set(filtered.map(r=>r.professional_id)).size;
+  const chart=months.map((label,i)=>{const rows=filtered.filter(r=>r.month===`2026-${String(i+1).padStart(2,'0')}`);return{label,planned:sum(rows,'planned_direct'),actual:sum(rows,'actual'),hasSic:rows.some(r=>r.actual!==null)};});
+  const maxChart=Math.max(1,...chart.flatMap(m=>[m.planned,m.actual]));
+  const pending=workspace.revisions.filter(r=>r.status==='pending').length;
+  const filters=<div className="filters">
+    <label>Instituto<select value={institute} onChange={e=>setInstitute(e.target.value)}><option value="">Todos los institutos</option>{institutions.map(v=><option key={v}>{v}</option>)}</select></label>
+    <label>Área<select value={area} onChange={e=>setArea(e.target.value)}><option value="">Todas las áreas</option>{areas.map(v=><option key={v}>{v}</option>)}</select></label>
+    <label>Período<select value={month} onChange={e=>setMonth(e.target.value)}><option value="">Enero – diciembre 2026</option>{months.map((v,i)=><option key={v} value={`2026-${String(i+1).padStart(2,'0')}`}>{v} 2026</option>)}</select></label>
+    <button className="text-button filter-reset" onClick={()=>{setInstitute('');setArea('');setMonth('');setQuery('');}}><RefreshCw size={14}/>Limpiar filtros</button>
+  </div>;
+  return <div className="app-shell">
+    <a className="skip" href="#main">Saltar al contenido</a>
+    <aside className="sidebar">
+      <div className="brand"><div className="brand-symbol"><Clock3 size={27}/></div><div>Cada hora<span>CUENTA</span></div></div>
+      <div className="workspace"><span className="workspace-dot"/><div>Planificación asistencial<small>Equipo central · Teletón</small></div><ChevronRight size={14}/></div>
+      <div className="nav-label">ESPACIO DE TRABAJO</div>
+      <nav aria-label="Navegación principal">{navigation.map(item=><button key={item.id} className={tab===item.id?'nav-item active':'nav-item'} aria-current={tab===item.id?'page':undefined} onClick={()=>setTab(item.id)}><item.icon size={18}/>{item.label}{item.id==='revisions'&&pending>0&&<span className="nav-tag">{pending}</span>}</button>)}</nav>
+      <div className="sidebar-bottom"><div className="local-card"><Database size={18}/><div>{demo?'Sesión de demostración':'Logs y revisiones'}<small><span className="dot online"/>{demo?'En memoria · no compartida':config.mode==='error'?'Falta configuración':'Supabase'}</small></div></div><div className="profile"><div className="avatar">PC</div><div>Planificación central<small>{demo?'Datos ficticios':workspace.role}</small></div>{supabase&&!needsLogin?<button className="logout" aria-label="Cerrar sesión" onClick={()=>action(async()=>{const{error}=await supabase!.auth.signOut();if(error)throw error;setWorkspace(EMPTY);setNeedsLogin(true);setInspecting(undefined);})}><LogOut size={16}/></button>:<ShieldCheck size={16}/>}</div></div>
+    </aside>
+    <div className="main-shell">
+      <header className="topbar"><div className="breadcrumb">Planificación<ChevronRight size={14}/><strong>{navigation.find(v=>v.id===tab)?.label}</strong></div><div className="topbar-right"><span className="year"><CalendarDays size={14}/>Año 2026</span><span className="top-divider"/><span className="app-label">BOTATHON <b>2026</b></span></div></header>
+      <main id="main">
+        <div className="page-heading"><div><div className="eyebrow">CADA HORA QUE PLANIFICAMOS, CUENTA.</div><h1>{tab==='dashboard'?'Una mirada a toda la red':navigation.find(v=>v.id===tab)?.label}</h1><p>{tab==='dashboard'?'Capacidad asistencial, metas y ejecución en un solo lugar.':tab==='import'?'Recibe los resultados procesados por el equipo Python.':tab==='revisions'?'Revisa una versión antes de publicarla para toda la red.':tab==='logs'?'Operaciones y decisiones de revisión con su autor y fecha.':'Detalle por profesional, instituto y mes.'}</p></div><div className="heading-actions"><button className="button secondary" disabled={busy||loading||needsLogin||!repository} onClick={()=>action(refresh)}><RefreshCw size={15}/>Actualizar</button><button className="button secondary" disabled={busy||!workspace.current} onClick={()=>downloadBlob(new Blob([toCsv(workspace.current!)],{type:'text/csv;charset=utf-8'}),`plan_v${snapshot.version}.csv`)}><ArrowDownToLine size={16}/>Exportar plan</button></div></div>
+        <div className="demo-banner"><span className="demo-mark">{demo?'DEMO':'WEB'}</span><span>{demo?'Datos ficticios en memoria. Recargar restablece esta sesión.':'Resultados de Python · Revisiones y actividad en Supabase.'}</span><span className="demo-tech">React · Web</span></div>
+        {notice&&<div role={notice.error?'alert':'status'} className={`notice ${notice.error?'error':'success'}`}><span>{notice.text}</span><button aria-label="Cerrar aviso" onClick={()=>setNotice(null)}><X size={17}/></button></div>}
+        {loading?<div className="loading"><LoaderCircle className="spin"/>Cargando planificación…</div>:needsLogin?<section className="card auth-card"><ShieldCheck size={32}/><h2>Acceso del equipo</h2><p>Usa la cuenta que el administrador invitó al proyecto.</p><form onSubmit={e=>{e.preventDefault();action(async()=>{const{error}=await supabase!.auth.signInWithPassword({email,password});if(error)throw error;setPassword('');await refresh();});}}><label>Correo<input type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} required/></label><label>Contraseña<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label><button className="button primary" disabled={busy}>Entrar</button></form></section>:!repository?<section className="empty"><Database/><h2>Conecta el proyecto de Supabase</h2><p>Configura las variables públicas del proyecto en el entorno de despliegue y vuelve a compilar.</p></section>:<>
+          {(tab==='dashboard'||tab==='people')&&<>
+            <div className="publication-line"><span><span className="dot online"/>{snapshot.version?`Versión v${String(snapshot.version).padStart(3,'0')} · Plan aprobado`:'Aún no hay un plan aprobado'}</span><small>{workspace.current?`Revisión ${stamp(workspace.current.created_at)}`:'Carga y revisa la primera versión'}</small></div>
+            {filters}
+            {!snapshot.version?<section className="empty"><FileSpreadsheet size={38}/><h2>Una planificación lista para revisar</h2><p>{demo?'Explora el panel con un plan ficticio o carga un JSON de resultados.':'Los resultados procesados se publican cuando un revisor los aprueba.'}</p>{demo?<button className="button primary" disabled={busy} onClick={()=>action(loadDemo)}>Cargar demo ficticia</button>:<button className="button primary" onClick={()=>setTab(isEditor?'import':'revisions')}>{isEditor?'Cargar resultados':'Ver revisiones'}</button>}</section>:<>
+<section className="kpi-grid" aria-label="Indicadores del período"><Kpi label="ATENCIONES PLANIFICADAS" value={n(planned)} detail="Directas + indirectas" icon={<Activity size={19}/>} extra="Proyección del período"/><Kpi label="META DE GESTIÓN" value={n(sum(filtered,'target'),1)} detail="Según parámetros publicados" icon={<CheckCircle2 size={19}/>} extra="Suma sin redondeo intermedio"/><Kpi label="FOJA" value={pct(contracted ? direct/contracted : null)} detail="Horas directas / contratadas" icon={<Clock3 size={19}/>} extra={`${n(direct)} h de atención directa`} accent/><Kpi label="PROFESIONALES" value={n(professionals)} detail={`${new Set(filtered.map(r => r.institute)).size} institutos en la selección`} icon={<Users size={19}/>} extra={`${n(contracted)} h contratadas`}/></section>
+              {tab === 'dashboard' ? <>
+                <div className="dashboard-grid"><section className="card chart-card"><div className="card-heading"><div><h2>Planificación y ejecución</h2><p>Atención directa · comparación mensual con SIC</p></div><span className="light-tag">2026</span></div><div className="chart-legend"><span><i className="legend-plan"/>Plan directo</span><span><i className="legend-actual"/>Realizado SIC</span></div><div className="chart"><div className="chart-axis">{[1,.75,.5,.25,0].map(v => <span key={v}>{n(maxChart*v)}</span>)}</div><div className="chart-plot"><div className="grid-lines">{[1,2,3,4,5].map(i => <i key={i}/>)}</div>{chart.map(m => <div key={m.label} className="chart-month"><div className="bar-pair" role="img" aria-label={`${m.label}: ${n(m.planned)} planificadas; ${m.hasSic ? n(m.actual) + ' realizadas' : 'sin SIC'}`} title={`${m.label}: plan ${n(m.planned)}, SIC ${m.hasSic ? n(m.actual) : 'sin datos'}`}><div className="bar plan" style={{height: `${m.planned / maxChart * 100}%`}}/><div className={`bar actual ${!m.hasSic ? 'no-data' : ''}`} style={{height: m.hasSic ? `${m.actual / maxChart * 100}%` : '3px'}}/></div><span>{m.label}</span></div>)}</div></div><div className="chart-footer"><span className="dot"/>Sin barra SIC = sin datos. Cero es un dato observado.<span>{n(actual)} atenciones realizadas</span></div></section>
+                <section className="card distribution-card"><div className="card-heading"><div><h2>¿Dónde están las horas?</h2><p>Distribución de la jornada contratada</p></div></div><div className="hours-total">{n(contracted)} <span>horas</span></div><div className="stacked-bar">{(['direct','indirect','nas','absence'] as const).map(k => <span className={`segment ${k}`} key={k} style={{width:`${contracted ? sum(filtered,k)/contracted*100 : 0}%`}}/>)}</div><div className="hour-breakdown">{[['direct','Atención directa'],['indirect','Atención indirecta'],['nas','No asistencial'],['absence','Ausencias y calendario']].map(([key,label]) => <div key={key}><span><i className={`segment ${key}`}/>{label}</span><strong>{n(sum(filtered,key as keyof PlanRow))} <small>h</small></strong></div>)}</div><div className="insight"><ShieldCheck size={17}/><span>FOJA se calcula sobre la suma de horas, también en los consolidados.</span></div></section></div>
+                <section className="card institute-card"><div className="card-heading"><div><h2>La red, instituto por instituto</h2><p>Selecciona una sede para profundizar en su dotación.</p></div><button className="text-button" onClick={() => setTab('people')}>Ver detalle <ArrowRight size={15}/></button></div><div className="table-scroll"><table><thead><tr><th>Instituto</th><th>Profesionales</th><th>Horas directas</th><th>Atenciones totales</th><th>Meta de gestión</th><th>FOJA</th><th><span className="sr-only">Detalle</span></th></tr></thead><tbody>{[...new Set(filtered.map(r => r.institute))].sort().map(i => { const rows = filtered.filter(r => r.institute === i); return <tr key={i}><td><span className="institute-icon">{i.slice(0,2).toUpperCase()}</span><strong>{i}</strong></td><td>{new Set(rows.map(r => r.professional_id)).size}</td><td>{n(sum(rows,'direct'),1)} h</td><td>{n(sum(rows,'planned'))}</td><td>{n(sum(rows,'target'),1)}</td><td><span className="foja-pill">{pct(sum(rows,'contracted') ? sum(rows,'direct')/sum(rows,'contracted') : null)}</span></td><td><button className="icon-button" aria-label={`Ver detalle de ${i}`} onClick={() => { setInstitute(i); setTab('people'); }}><ArrowRight size={16}/></button></td></tr>; })}</tbody></table></div>{filtered.length === 0 && <p className="no-results">No hay resultados para estos filtros.</p>}</section>
+                <div className="bottom-strip"><div><GitBranch size={19}/><span>Un plan trazable, desde su origen.<small>Python → resultados → revisión → plan aprobado</small></span></div><button className="text-button" onClick={() => setTab('revisions')}>Consultar trazabilidad <ArrowRight size={15}/></button></div>
+              </> : <section className="card people-card"><div className="card-heading"><div><h2>Plan por profesional y mes</h2><p>{n(filtered.length)} registros · SIC se compara con atención directa.</p></div><label className="search"><Search size={16}/><input aria-label="Buscar profesional o cargo" placeholder="Buscar ID o cargo" value={query} onChange={e => setQuery(e.target.value)}/></label></div><div className="table-scroll"><table><thead><tr>{['Profesional','Instituto / cargo','Mes','Contratadas','Directas','Indirectas','NAS','Ausencias','Plan total','Meta','SIC directo','FOJA'].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{filtered.slice(0,240).map((r,i) => <tr key={i}><td><strong>{r.professional_id}</strong></td><td>{r.institute}<small className="cell-small">{r.role}</small></td><td>{months[Number(r.month.slice(-2))-1]}</td><td>{n(r.contracted,1)}</td><td>{n(r.direct,1)}</td><td>{n(r.indirect,1)}</td><td>{n(r.nas,1)}</td><td>{n(r.absence,1)}</td><td>{n(r.planned)}</td><td>{n(r.target,1)}</td><td>{r.actual === null ? <span className="muted">Sin SIC¹</span> : n(r.actual)}</td><td>{pct(r.foja)}</td></tr>)}</tbody></table></div><p className="table-note">Horas en h. ¹ SIC ausente o cruce con varios cargos: no se atribuye el mismo realizado a dos filas. Se muestran hasta 240 filas; exportar para obtener el detalle completo.</p></section>}
+            </>}
+          </>}
+          {tab==='import'&&<div className="import-grid"><section className="card import-form"><div className="card-heading"><div><h2>Resultados listos para revisión</h2><p>El contrato valida la estructura. El equipo entrega los resultados de su proceso Python/Blue Prism.</p></div><ShieldCheck size={24}/></div><form onSubmit={e=>{e.preventDefault();action(async()=>{
+            if(!file)throw new Error('Selecciona el archivo JSON procesado.');
+            let document;
+            try{document=await readPlanFile(file);}catch(e){const errors=e instanceof ContractError?e.errors:[String(e)];try{await repository!.recordFailure(errors);await refresh();}catch(logError){throw new Error(errors.join('\n')+'\nEl rechazo no pudo registrarse: '+String(logError));}throw e;}
+            const revision=await repository!.submit(document,file.name);await refresh();setTab('revisions');
+            setNotice({text:`Revisión v${revision.version}: ${statusLabel[revision.status].toLowerCase()}. El resumen conserva el último plan aprobado.`});
+          });}}><label className="file-input"><span className="file-label">JSON de resultados procesados</span><span className="file-zone"><FileSpreadsheet size={27}/><span><strong>{file?.name||'Selecciona el archivo generado por Python'}</strong><small>schema_version 1 · 2026 · máximo 10 MB</small></span><span className="light-tag">.json</span></span><input type="file" accept=".json,application/json" onChange={e=>setFile(e.target.files?.[0])}/></label><div className="import-foot"><p>Una carga válida crea una revisión pendiente. No sustituye el plan aprobado.</p><button type="submit" className="button primary" disabled={busy||!file||!isEditor}><Upload size={16}/>Validar y enviar a revisión</button></div>{!isEditor&&<p className="table-note">Tu rol permite consultar. La carga requiere un editor o administrador.</p>}</form></section><section className="card helper-card"><div className="helper-icon"><FileSpreadsheet size={25}/></div><h2>Contrato para el equipo Python</h2><p>Exportar una fila por profesional, sede, área, cargo y mes. Entregar horas y metas ya calculadas; usar null cuando SIC no esté disponible.</p><h3>Archivos ficticios de prueba</h3><div className="sample-links">{['plan_demo_2026.json','plan_cambio_julio.json','plan_invalido.json'].map(f=><a className="text-button" href={sample(f)} download key={f}><ArrowDownToLine size={13}/>{f}</a>)}</div><div className="integration-note"><GitBranch size={18}/><p>El equipo implementará la limpieza y el enlace con Blue Prism. Esta web consume la salida normalizada.</p></div></section></div>}
+          {tab==='revisions'&&<>
+            <div className="version-summary"><ShieldCheck size={22}/><div><strong>{pending} revisiones pendientes</strong><p>La aprobación publica una versión. Un rechazo conserva el último plan aprobado.</p></div></div>
+            <section className="card"><div className="card-heading"><div><h2>Versiones y decisiones</h2><p>Hasta 100 revisiones recientes. Consulta cada resultado antes de decidir.</p></div></div><div className="table-scroll"><table><thead><tr><th>Versión</th><th>Origen</th><th>Fecha · Santiago</th><th>Estado</th><th>Revisión</th></tr></thead><tbody>{workspace.revisions.map(r=><tr key={r.id}><td><strong>v{String(r.version).padStart(3,'0')}</strong>{workspace.current?.revision_id===r.id&&<small className="cell-small">Plan visible</small>}</td><td>{r.source_label}</td><td>{stamp(r.created_at)}</td><td><span className={`status-pill ${r.status}`}>{statusLabel[r.status]}</span></td><td><button className="text-button" disabled={busy} onClick={()=>action(async()=>{setInspecting({revision:r,plan:await repository!.snapshot(r.id)});setComment('');})}>Ver revisión<ChevronRight size={14}/></button></td></tr>)}</tbody></table></div>{!workspace.revisions.length&&<p className="no-results">Las cargas procesadas aparecerán aquí.</p>}</section>
+            {inspecting&&<section className="card historical"><div className="card-heading"><div><h2>Revisión v{inspecting.revision.version}</h2><p>{inspecting.revision.source_label} · Reglas {inspecting.plan.parameters_version}</p></div><button className="icon-button" aria-label="Cerrar revisión" onClick={()=>setInspecting(undefined)}><X size={18}/></button></div><div className="review-summary"><span><strong>{n(inspecting.plan.rows.length)}</strong> filas</span><span><strong>{n(sum(inspecting.plan.rows,'planned'))}</strong> atenciones</span><span><strong>{n(sum(inspecting.plan.rows,'target'),1)}</strong> meta</span><button className="text-button" onClick={()=>downloadBlob(new Blob([toCsv(inspecting.plan)],{type:'text/csv;charset=utf-8'}),`revision_v${inspecting.plan.version}.csv`)}>Exportar detalle<ArrowDownToLine size={14}/></button></div><div className="table-scroll"><table><thead><tr><th>ID</th><th>Instituto / cargo</th><th>Mes</th><th>Horas contratadas</th><th>Plan</th><th>Meta</th></tr></thead><tbody>{inspecting.plan.rows.slice(0,12).map((r,i)=><tr key={i}><td>{r.professional_id}</td><td>{r.institute}<small className="cell-small">{r.role}</small></td><td>{r.month}</td><td>{n(r.contracted,1)}</td><td>{n(r.planned)}</td><td>{n(r.target,1)}</td></tr>)}</tbody></table></div><p className="table-note">Muestra de 12 filas. Exporta el detalle para revisar el conjunto completo.</p>{inspecting.revision.status==='pending'&&isReviewer?<div className="review-form"><label>Justificación de la decisión<textarea value={comment} onChange={e=>setComment(e.target.value)} maxLength={2000} required placeholder="Indica el caso comprobado, la evidencia o el motivo del rechazo."/></label><div className="params-actions"><button className="button secondary" disabled={busy||!comment.trim()} onClick={()=>action(()=>review('rejected'))}>Rechazar revisión</button><button className="button primary" disabled={busy||!comment.trim()} onClick={()=>action(()=>review('approved'))}><CheckCircle2 size={16}/>Aprobar y publicar</button></div></div>:<p className="table-note">{inspecting.revision.review_comment||'La decisión requiere un revisor o administrador.'}</p>}</section>}
+          </>}
+          {tab==='logs'&&<section className="card audit-card"><div className="card-heading"><div><h2>Registro de actividad</h2><p>{demo?'Actividad de esta sesión ficticia.':'Últimas 100 operaciones registradas en Supabase. La identidad la determina la sesión autenticada.'}</p></div></div>{workspace.logs.map(e=><details className="log-entry" key={e.id}><summary><strong>{e.operation}</strong><time>{stamp(e.created_at)}</time><span>{e.actor_id}</span></summary><pre>{JSON.stringify(e.detail,null,2)}</pre></details>)}{!workspace.logs.length&&<p className="no-results">Todavía no hay operaciones registradas.</p>}</section>}
+        </>}
+        <footer className="page-footer"><span>Cada hora cuenta<span className="footer-dot">·</span>Botathon 2026</span><span><Database size={12}/>{demo?'Demostración en memoria':'Supabase · logs y revisiones'}<span className="footer-dot">·</span>v0.2.0</span></footer>
+      </main>
+    </div>
+    {busy&&<div className="busy-indicator" role="status"><LoaderCircle size={16} className="spin"/>Procesando…</div>}
+  </div>;
+}
+
+
+function Kpi({label,value,detail,icon,extra,accent=false}:{label:string;value:string;detail:string;icon:React.ReactNode;extra:string;accent?:boolean}) {
+  return <article className={`kpi ${accent ? 'accent' : ''}`}><div className="kpi-label">{label}<span>{icon}</span></div><div className="kpi-value">{value}</div><p>{detail}</p><div className="kpi-extra"><span className="dot"/>{extra}</div></article>;
+}

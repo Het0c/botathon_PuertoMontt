@@ -1,49 +1,45 @@
-# Botathon 2026 · Equipo 35 · "Cada hora cuenta" (Teletón)
+# Botathon Puerto Montt · Cada hora cuenta
 
-Prototipo que transforma la planificación de horas asistenciales de Teletón (hoy un Excel alimentado a mano)
-en un proceso trazable y parametrizable con **Blue Prism** como núcleo.
+Base web **React + TypeScript + Vite**, con **Supabase para logs, revisiones y el plan aprobado**. La limpieza de datos la desarrolla el equipo en Python. Blue Prism permanece como componente del proceso del desafío; su integración real y el cálculo oficial los valida el equipo.
 
-## Arquitectura
+- [Aplicación web e instrucciones](cada-hora-cuenta/README.md)
+- [Descargar base web v0.2.0](entregables/Botathon_Web_v0.2.0.zip?raw=true)
+- [Contrato de resultados para Python/Blue Prism](cada-hora-cuenta/docs/CONTRATO.md)
+- [Configuración de Supabase, usuarios y roles](cada-hora-cuenta/docs/SUPABASE.md)
+- [Build y despliegue online](cada-hora-cuenta/docs/DESPLIEGUE.md)
 
-```
-Excel crudos (BUK / SIC simulados)
-        │
-        ▼
-[1] bot_traductor.py  (Python)  → Planificacion_Input_BluePrism.xlsx  (20 tablas planas + log)
-        │
-        ▼
-[2] Blue Prism: proceso "Planificación Asistencial"
-      · carga Cambios_Mes / Dotacion_Mes a la Work Queue (1 ítem por profesional)
-      · aplica la cadena de cálculo leyendo Param_* y Entradas humanas
-      · marca excepciones (cargo sin matriz, asignación por autorizar, horas en 0...)
-        │
-        ▼
-[3] Salida: planificación por persona + consolidado por instituto + log de auditoría
+## Arquitectura acordada
+
+```text
+Excel BUK/SIC
+    → Python: limpieza (equipo)
+    → Proceso del equipo / Blue Prism: cálculo y resultados validados
+    → JSON de resultados
+    → React: vista nacional, filtros y detalle
+    → Supabase: revisiones, decisiones, logs y último plan aprobado
 ```
 
-## Estructura del repositorio
+Una carga válida crea una revisión pendiente. Un revisor debe aprobarla para cambiar el plan visible. Un rechazo o un archivo inválido conserva la última versión aprobada. La demo funciona en memoria y se identifica en pantalla; la persistencia compartida requiere configurar el proyecto Supabase.
 
-```
-bot_traductor/     script Python que traduce los Excel crudos (ver bot_traductor/LEEME.md)
-blueprism/         releases .bprelease del proceso y objetos (exportar desde Blue Prism)
-docs/              diagrama del proceso, reglas de cálculo, pitch
-data/ejemplo/      salida de ejemplo del traductor (datos ficticios)
-```
+## Arranque
 
-## Equipo
+Se necesita Node 24. El frontend arranca sin un servidor Python local:
 
-- Persona A – Blue Prism (proceso, objetos, Work Queue)
-- Persona B – Datos y parámetros (bot traductor, datos de prueba)
-- Persona C – Lógica de cálculo y validación
-- Persona D – Diseño del proceso, pitch y demo
-
-## Cómo correr el traductor
-
-Ver [bot_traductor/LEEME.md](bot_traductor/LEEME.md). Resumen:
-
-```
-pip install openpyxl
-python bot_traductor/bot_traductor.py --contratos "Nac - Base contratos x mes.xlsx" --planificacion "Nac - Planificación Asistencial x mes.xlsx" --salida salida --csv
+```bash
+cd cada-hora-cuenta
+npm ci
+npm run dev
 ```
 
-> Todos los datos son ficticios (sin nombres ni RUT reales). No subir credenciales de la VM ni de Blue Prism a este repositorio.
+Para Supabase real, seguir su guía y configurar las variables públicas antes de compilar. Para generar la web: `npm run build`; salida `cada-hora-cuenta/dist/`. El workflow [React web](.github/workflows/web.yml) prueba y compila; permite desplegar manualmente a GitHub Pages una vez habilitado por el propietario.
+
+## Traductor Python existente
+
+El código original permanece en `bot_traductor.py`, con instrucciones en [LEEME.md](LEEME.md). Genera un libro intermedio para Blue Prism; el equipo implementará la adaptación de esa salida al JSON de resultados. La web no limpia los Excel ni certifica las fórmulas del kit.
+
+```bash
+pip install -r requirements.txt
+python bot_traductor.py --contratos "Nac - Base contratos x mes.xlsx" --planificacion "Nac - Planificación Asistencial x mes.xlsx" --salida salida --csv
+```
+
+La documentación de pruebas está en [VALIDACION.md](cada-hora-cuenta/docs/VALIDACION.md). Los ejemplos del frontend son ficticios; no subir credenciales, nombres, RUT ni datos clínicos al repositorio.
