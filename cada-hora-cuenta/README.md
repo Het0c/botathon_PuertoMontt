@@ -1,117 +1,58 @@
-# Cada hora cuenta · Base Botathon 2026
+# Cada hora cuenta · Base web v0.2.0
 
-Plantilla inicial **v0.1.0** para empezar sin repositorio: React + TypeScript + Vite, escritorio Tauri 2 y SQLite mediante un servicio Python local. Idioma: español. Uso previsto: equipo central en una VM, con datos ficticios.
+React + TypeScript + Vite para publicación online. Supabase guarda logs, revisiones y snapshots aprobados. El equipo se encarga de la limpieza en Python y del cálculo/integración con Blue Prism; este frontend recibe resultados listos para revisar.
 
-**Flujo implementado:** BUK/SIC Excel normalizados → validación → cálculo provisional → publicación local transaccional → panel con última versión válida. Un lote inválido deja un error registrado y conserva la versión visible. Una repetición idéntica no duplica una versión.
+## Arranque rápido
 
-Esta base parte de los dos DOCX adjuntos. La conversación enlazada no se pudo recuperar: no había una herramienta `read_thread` disponible. Los documentos se usaron como especificación; sus asignaciones de equipo y horarios no se ejecutaron como instrucciones del usuario.
+Requisito: Node 24 y npm.
 
-## Arranque rápido en Windows (PowerShell)
-
-Requisitos: Node 24 LTS, npm y Python 3.12. Ejecutar dentro de esta carpeta:
-
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r server/requirements-dev.txt
+```bash
 npm ci
 npm run dev
 ```
 
-Abrir **http://localhost:1420**. El modo de desarrollo carga una demo explícitamente ficticia con 16 profesionales y 4 institutos. Se guarda en `work/data/botathon.sqlite3`; reiniciar conserva el plan. El proceso arranca API y frontend juntos; Ctrl+C los detiene.
+Abrir la dirección local que indica Vite (por defecto `http://127.0.0.1:5173`). Sin configuración, la aplicación muestra el modo demo explícito. Seleccionar **Cargar demo ficticia** para explorar el resumen nacional. No hay datos compartidos en ese modo: recargar reinicia la sesión.
 
-Linux/macOS:
+Para conectar el proyecto real, aplicar la migración e invitar miembros según [SUPABASE.md](docs/SUPABASE.md). Copiar `.env.example` a `.env.local`, seleccionar `VITE_DATA_MODE=supabase` y configurar su URL y clave pública. Reconstruir el sitio después de cambiar variables.
 
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r server/requirements-dev.txt
-npm ci
-npm run dev
-```
+## Flujo de trabajo
 
-La clave de desarrollo es `demo-local-cambiar`; úsala solo en el entorno local ficticio. Si se cambia `BOTATHON_TOKEN`, definir el mismo valor en `VITE_DEV_API_TOKEN` para el servidor de desarrollo. En escritorio, Tauri genera una clave aleatoria por ejecución.
+1. Python limpia los datos; el proceso del equipo con Blue Prism entrega el JSON de resultados según [CONTRATO.md](docs/CONTRATO.md).
+2. El editor entra en **Cargar resultados** y selecciona ese JSON. La aplicación valida estructura, duplicados e identidades de horas/metas, sin aplicar fórmulas institucionales.
+3. Supabase registra una revisión pendiente con la identidad del usuario autenticado. Reprocesar el mismo documento reutiliza la revisión existente.
+4. El revisor abre **Revisiones → Ver revisión**, consulta/exporta el detalle y justifica su decisión.
+5. **Aprobar y publicar** cambia la versión visible; **Rechazar** conserva el último plan aprobado. Los logs registran autor, operación, fecha y decisión.
+6. **Actualizar** recupera cambios de otros usuarios. El frontend no utiliza suscripciones en tiempo real en esta base.
 
-## Probar la publicación y el último plan válido
+Los roles editor y reviewer están separados; admin puede hacer ambas operaciones. Viewer solo consulta. Los permisos también se comprueban en PostgreSQL, no solo en los botones del panel.
 
-1. En **Carga de reportes**, descargar los archivos de ejemplo, o usar los de `examples/`.
-2. Cargar `BUK_base_demo.xlsx` + `SIC_demo.xlsx`. Si la demo ya está cargada, se reutiliza su versión.
-3. En Dotación, filtrar **Puerto Montt → PRO-009 → Ene 2026** y observar las cifras.
-4. Cargar `BUK_cambio_julio.xlsx` marcando **Reutilizar SIC**. Cambia la jornada de PRO-009 desde julio: 44 nominales a 30 h. La aplicación ya aplica el tope 42 desde mayo.
-5. Enero–junio conservan sus resultados; julio cambia. En la demo: enero 193,6 h contratadas; julio después del cambio, 138 h.
-6. Cargar `BUK_invalido.xlsx`: reporta horas negativas y duplicados, sin reemplazar el plan.
-7. Consultar **Versiones y trazabilidad** y exportar el plan CSV. Cerrar y abrir: la versión válida persiste.
+## Ejemplos para probar
 
-La planilla vacía `examples/Plantilla_Botathon_2026.xlsx` incluye BUK, SIC, instrucciones y hojas de referencia de parámetros/calendario. Para usar un solo libro, seleccionarlo tanto como BUK como SIC. Las hojas de referencia no se importan automáticamente: editar reglas en Parámetros.
+Los archivos de `public/examples/` se pueden descargar desde **Cargar resultados**:
 
-## Compilar Tauri
+- `plan_demo_2026.json`: 192 resultados mensuales, 16 IDs y 4 institutos ficticios.
+- `plan_cambio_julio.json`: otro snapshot ya calculado, con un cambio de jornada desde julio y meses anteriores conservados.
+- `plan_invalido.json`: horas negativas para comprobar rechazo y preservación del plan aprobado.
 
-Tauri usa el mismo panel y empaqueta el servicio como sidecar con PyInstaller: el usuario final no necesita instalar Python ni iniciar un servidor aparte. La primera apertura del escritorio comienza sin datos; permite cargar la demo.
+No representan el kit oficial. Las reglas/cifras del caso real se cotejan dentro del trabajo del equipo; la web solo consume su salida. `actual: null` se distingue de cero y FOJA agregado divide las sumas de horas.
 
-Requisitos adicionales Windows: Rust estable mediante rustup, **Visual Studio Build Tools con Desktop development with C++** y WebView2 Runtime. Compilar en la misma plataforma y arquitectura que usará el instalador.
-
-```powershell
-npm run desktop:dev
-npm run desktop:build
-```
-
-`desktop:build` crea el sidecar, compila React y ejecuta Tauri. Salida: `src-tauri/target/release/bundle/`. Las descargas abren un diálogo nativo; solo se permite escribir en el archivo seleccionado.
-
-Linux Debian/Ubuntu requiere previamente GLib/GTK/WebKit y las herramientas de compilación:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev librsvg2-dev patchelf libayatana-appindicator3-dev
-npm run desktop:build
-```
-
-Se incluye `.github/workflows/desktop.yml` para compilar Windows/Linux manualmente o con una etiqueta `v*` cuando el equipo cree su repositorio remoto. El flujo sube artefactos de compilación a Actions; no publica una web ni crea un release público. El instalador debe firmarse según las políticas del equipo antes de una distribución institucional.
-
-**Estado comprobado en este entorno:** build React, pruebas del núcleo, flujo real en Chromium y sidecar Linux. La compilación Tauri se detuvo por ausencia de bibliotecas de desarrollo GLib/GTK/WebKit. El instalador de Windows y el ciclo completo de escritorio no están verificados aquí.
-
-## Integración Blue Prism
-
-La organización no proporciona APIs BUK/SIC para el evento: se trabaja con Excel simulados. Esta base **recibe** BUK; no envía información a un servicio externo BUK.
-
-Blue Prism debe vigilar la carpeta, ejecutar el lector y decidir según `estado.json`. El conector real y el proceso Blue Prism se montan en la VM del evento. Ver `docs/BLUE_PRISM.md`.
-
-```powershell
-.\.venv\Scripts\python.exe scripts/blueprism_ingest.py --connection work/data/connection.json --buk examples/BUK_base_demo.xlsx --sic examples/SIC_demo.xlsx --status work/estado.json
-```
-
-También acepta `--manifest examples/lote_cambio.json`. En instalación empaquetada, el sidecar ofrece `botathon-api.exe --ingest ...` con los mismos argumentos, sin Python instalado.
-
-## Qué incluye y qué falta
-
-Incluye filtros por instituto, área, mes e ID/cargo; horas por categoría, FOJA agregado por sumas, metas, SIC ausente frente a cero; catálogo de reglas editable; historial de corridas, errores, cambios y publicaciones; Excel, CSV, contrato JSON, conservación por vigencias y control de sesión local editor/lector.
-
-**Antes de competir:** mapear las columnas reales del kit, cargar catálogos y calendario oficial completo por sede, conciliar fórmulas/redondeos con casos oficiales, conectar Blue Prism y validar el instalador en la VM. No se afirma coincidencia con el Excel oficial ni cobertura de todos los institutos: esos datos aún no fueron adjuntados. Reemplazos, vacantes y beneficios necesitan el modelo real del kit. El control de acceso actual es local por cuenta del sistema y token; no hay autenticación institucional ni flujo de autorización DMN.
-
-Las decisiones provisionales y el tratamiento de historia están en `docs/REGLAS.md`; los campos y endpoints, en `docs/CONTRATO.md`. Las pruebas no sustituyen el cotejo con el Excel de referencia.
-
-## Verificación
+## Build, pruebas y hosting
 
 ```bash
 npm test
 npm run build
 ```
 
-Para repetir la prueba de interfaz, con `npm run dev` en otra terminal y Chromium instalado:
+El build genera `dist/`, listo para hosting estático por HTTPS. No necesita un backend Python para servir la web. [DESPLIEGUE.md](docs/DESPLIEGUE.md) explica la configuración de hosting y GitHub Pages.
 
-```bash
-node scripts/check-ui.mjs
-```
+La suite ejecuta el contrato de entrada, el repositorio de demo, la configuración pública y la migración en PostgreSQL embebido, incluidos permisos RLS y revisión transaccional. Ver límites de verificación en [VALIDACION.md](docs/VALIDACION.md).
 
-Definir `CHROMIUM_PATH` si Chromium está en otra ruta. La prueba modifica únicamente los datos ficticios de la demo, carga el cambio de julio, intenta una entrada inválida, descarga CSV y verifica vista móvil. Capturas en `work/screenshots/`.
+## Estructura
 
-## Carpetas y datos
+- `src/`: panel, validación del contrato, acceso Supabase y demo en memoria.
+- `supabase/migrations/`: tablas, políticas RLS y funciones de revisión/publicación.
+- `public/examples/`: resultados ficticios ya calculados.
+- `tests/`: pruebas de contrato y PostgreSQL.
+- `docs/`: contrato, Supabase y despliegue.
 
-- `src/`: panel React y adaptador para navegador/Tauri.
-- `server/`: validación, cálculo, API local y SQLite.
-- `src-tauri/`: shell Rust, permisos, iconos y configuración del sidecar.
-- `examples/`: planillas y lotes JSON ficticios.
-- `scripts/`: desarrollo, empaquetado e integración por carpeta.
-- `tests/`: pruebas del flujo, persistencia y errores.
-- `docs/`: contrato, reglas, Blue Prism y evidencia de validación.
-
-En escritorio, SQLite queda en el directorio de datos de la aplicación: Windows `%APPDATA%/cl.botathon.cadahoracuenta`, Linux `$XDG_DATA_HOME/cl.botathon.cadahoracuenta` o `~/.local/share/cl.botathon.cadahoracuenta`. En macOS, `~/Library/Application Support/cl.botathon.cadahoracuenta`. `connection.json` vive junto a la base; contiene la clave efímera y no debe compartirse ni versionarse. La base tampoco se versiona. Para respaldar una base en uso, emplear SQLite backup; para copiar el archivo directamente, detener la aplicación primero.
-
-Apoyo de IA: esta plantilla fue generada con asistencia de Codex; reglas y resultados institucionales requieren validación humana con el kit.
+No se ha provisionado un proyecto Supabase real ni publicado el sitio online durante la preparación de esta versión. El código de limpieza del equipo vive fuera del frontend. Esta base fue preparada con asistencia de Codex.

@@ -1,77 +1,49 @@
-# Contrato inicial de intercambio · v1
+# Contrato de resultados del equipo Python · v1
 
-Este formato normalizado es del proyecto, no el formato oficial de BUK ni SIC. La capa de lectura debe mapearlo a las columnas que llegue a entregar el kit.
+React recibe un **JSON ya limpio y calculado**. No lee los Excel BUK/SIC, no transforma las hojas del traductor y no aplica fórmulas de planificación. La limpieza y la exportación de este formato las implementará el equipo en Python. Blue Prism orquesta el proceso del desafío; el equipo define y valida su etapa de cálculo.
 
-## Excel BUK
-
-Hoja `BUK`; primeras ocho columnas obligatorias por nombre. Máximo 20.000 filas y 8 MB por archivo. Se rechazan fórmulas y archivos corruptos.
-
-| Columna | Tipo | Condición |
-|---|---|---|
-| contract_id | texto | Clave de vínculo; no reutilizar para otra persona |
-| professional_id | texto | ID ficticio; no usar RUT/nombres reales en la demo |
-| institute | texto | Sede normalizada |
-| area | texto | Área normalizada |
-| role | texto | Cargo debe existir en catálogo de parámetros |
-| hours_weekly | número | 0 a 80, sujeto a los topes parametrizados del cálculo |
-| start_date | fecha ISO | Inicio contractual |
-| end_date | fecha ISO o vacío | Término explícito; nunca inferido por ausencia |
-| effective_from | fecha ISO o vacío | Desde cuándo rigen los valores; por defecto start_date |
-| assignments | texto o lista JSON | Nombres del catálogo separados por `;` en Excel |
-| approved_assignments | texto o lista JSON | Declaración de autorización del dato; no prueba identidad DMN |
-| leave_start / leave_end | fecha ISO o vacío | Ambas presentes y ordenadas si hay licencia |
-
-Orden: inicio ≤ fecha efectiva ≤ término cuando existe. Clave única del segmento: `contract_id + effective_from`. Varios segmentos de un vínculo representan cambios en el año. Varios vínculos permiten repartir una persona entre sedes. Por ahora se admite un intervalo de licencia por segmento; el kit definirá incidencias múltiples, reemplazos, vacantes y beneficios.
-
-No se deduce una baja a partir de un contrato omitido: se preserva su historia hasta recibir término explícito. Un segmento con la misma clave sustituye sus valores; otro con fecha efectiva nueva se añade a la historia.
-
-## Excel SIC
-
-Hoja `SIC`: `professional_id`, `institute`, `month` (AAAA-MM), `actual` (entero ≥0). Clave única: persona + sede + mes. La demo supone que SIC mide atenciones directas; confirmar el tipo con el kit. Una fila con cero es distinta de una fila ausente. Un cruce sin contrato vigente se rechaza y requiere revisión del archivo.
-
-Si una persona tiene varios cargos/áreas en una sede y mes, SIC se conserva en el nivel persona/sede/mes (`comparisons`) y no se copia a cada cargo. El panel de detalle muestra sin atribución SIC en esas filas; el CSV conserva los nulos. El resumen actual de SIC usa solo los cruces inequívocos del detalle: ampliar a comparación agrupada cuando el kit presente este caso.
-
-## API local
-
-Solo loopback; todas las rutas requieren `Authorization: Bearer <clave local>`. La clave de edición permite cambios; `BOTATHON_READ_TOKEN` habilita un token opcional de lectura. `connection.json` solo registra la clave de edición para el bot local. El actor de auditoría deriva de la sesión local; el JSON no puede elegirlo.
-
-| Ruta | Método | Uso |
-|---|---|---|
-| /api/health | GET | Conexión, rol y versión de aplicación |
-| /api/plan | GET | Último plan válido, filas, cambios y comparación |
-| /api/plan?version=1 | GET | Consulta histórica sin mover la publicación |
-| /api/runs | GET | Últimas 100 corridas y operaciones |
-| /api/parameters | GET / PUT | Leer o validar/guardar `{ "params": {...} }` |
-| /api/import | POST multipart | `buk`, `sic`, o `reuse_sic=true` explícito |
-| /api/batches | POST JSON | Lote normalizado orquestado por Blue Prism |
-| /api/recalculate | POST | Recalcular la última dotación con parámetros guardados |
-| /api/export | GET | CSV completo del plan vigente |
-| /api/templates/{nombre} | GET | Plantillas del conjunto permitido |
-| /api/demo | POST | Datos ficticios del paquete |
-
-Ejemplo JSON para la automatización:
+El traductor existente en la raíz genera un Excel intermedio con tablas planas. Ese archivo todavía no es el JSON consumido por esta web: el enlace entre ambos queda a cargo del equipo.
 
 ```json
 {
   "schema_version": 1,
-  "params_hash": "SHA256 opcional de GET /api/parameters",
-  "buk": [{
-    "contract_id": "C-001",
+  "year": 2026,
+  "parameters_version": "reglas-2026-v1",
+  "rows": [{
     "professional_id": "PRO-001",
-    "institute": "Santiago",
+    "institute": "Puerto Montt",
     "area": "Rehabilitación",
     "role": "Kinesiología",
-    "hours_weekly": 44,
-    "start_date": "2026-01-01",
-    "end_date": null,
-    "effective_from": "2026-01-01"
-  }],
-  "sic": []
+    "month": "2026-07",
+    "contracted": 138,
+    "direct": 89.7,
+    "indirect": 34.5,
+    "nas": 13.8,
+    "absence": 0,
+    "planned_direct": 179,
+    "planned_indirect": 69,
+    "planned": 248,
+    "target": 223.2,
+    "actual": null,
+    "foja": 0.65
+  }]
 }
 ```
 
-`params_hash` impide publicar si las reglas cambian entre la preparación del lote y su recepción. Si se omite `sic`, se reutiliza la última versión válida; está prohibido en la primera carga. `sic: []` declara explícitamente que no hay realizados observados.
+Cada campo del ejemplo es obligatorio. El documento no admite otros campos. Los textos tienen 1–120 caracteres; las categorías numéricas son finitas y no negativas, con máximo 10.000.000. `actual` puede ser null y debe ser entero cuando existe. `foja` debe ser null con jornada cero y concordar con directa/contratada en el resto. `planned_direct`, `planned_indirect` y `planned` son enteros.
 
-Éxito: HTTP 200 con `status=published`, `version`, `active_version`, `run_id` y conteos `summary`. Repetición: `status=reused`; no crea versión ni retrocede la visible. Validación: HTTP 422, `errors` localizados y `run_id` cuando el rechazo ocurre dentro del servicio. El lector externo también puede rechazar antes de enviar: en ese caso su `estado.json` contiene el error y no hay corrida nueva en la base.
+Se admite entre 1 y 20.000 filas, con máximo 10 MB por archivo. La clave única es profesional + instituto + área + cargo + mes. El período de esta base es 2026. Las horas contratadas deben conciliar con directa + indirecta + NAS + ausencias (tolerancia 0,01 h); la meta no puede superar el plan y `planned` debe sumar directa e indirecta. Estas verificaciones comprueban el contrato y sus identidades, no certifican las reglas institucionales.
 
-Se calcula SHA256 de los contratos normalizados resultantes, SIC y parámetros. El merge, el cálculo, la inserción de la versión y el cambio del puntero visible se ejecutan bajo la misma transacción `BEGIN IMMEDIATE`. Si falla, se revierte y se registra el rechazo por separado. Las versiones publicadas son inmutables. SQLite utiliza WAL y claves foráneas.
+Python entrega los resultados de todo el plan vigente, incluidos los meses históricos que corresponda conservar. Cada revisión es un snapshot completo; React y Supabase no fusionan contratos ni recalculan meses. La política de vigencias, tramos, redondeo, calendario y asignaciones se valida contra el kit en el proceso de cálculo del equipo.
+
+`actual: 0` significa cero observado; `actual: null`, ausencia de un SIC atribuible a esa fila. Si SIC no distingue cargos o áreas, Python debe evitar duplicarlo entre filas, asignándolo solo cuando el cruce sea inequívoco o entregando null. El resumen suma los realizados atribuidos a las filas.
+
+## Flujo de revisión
+
+1. El editor carga el JSON y se valida en navegador y servidor.
+2. Supabase crea una revisión `pending` con número y fecha del servidor.
+3. El revisor consulta el detalle, puede exportarlo y escribe una justificación.
+4. Aprobar cambia el plan visible en la misma transacción que guarda la decisión y su log. Rechazar mantiene el aprobado anterior.
+5. Repetir el mismo documento reutiliza la revisión existente. El hash lo calcula PostgreSQL sobre el JSON, sin confiar en una huella enviada desde el navegador. Una revisión rechazada idéntica sigue rechazada: corregir su salida o versión de reglas antes de enviarla otra vez.
+
+Los logs no guardan archivos BUK/SIC crudos: registran la operación, el usuario autenticado, la revisión y la justificación o errores del contrato. Los snapshots sí contienen los resultados mensuales necesarios para la revisión. No enviar nombres, RUT ni antecedentes clínicos en esta base de demostración.

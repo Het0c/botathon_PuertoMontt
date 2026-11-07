@@ -1,0 +1,65 @@
+name: React web
+on:
+  push:
+    branches: [main, 'botathon/**']
+    paths: ['cada-hora-cuenta/**', '.github/workflows/web.yml']
+  pull_request:
+    branches: [main]
+    paths: ['cada-hora-cuenta/**', '.github/workflows/web.yml']
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Publicar en GitHub Pages (habilitar Pages con Source GitHub Actions primero)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cada-hora-cuenta
+    env:
+      VITE_DATA_MODE: ${{ vars.VITE_DATA_MODE || 'demo' }}
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cada-hora-cuenta/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: react-web-dist
+          path: cada-hora-cuenta/dist/
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: react-web-dist
+          path: dist
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - name: Publicar
+        id: deployment
+        uses: actions/deploy-pages@v4
