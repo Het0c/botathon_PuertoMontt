@@ -3,6 +3,7 @@ import { resolveConfig } from './config';
 import { DemoRepository, SupabaseRepository } from './repositories';
 export const config = resolveConfig({
   VITE_DATA_MODE:import.meta.env.VITE_DATA_MODE,
+  VITE_CALC_API_URL:import.meta.env.VITE_CALC_API_URL,
   VITE_SUPABASE_URL:import.meta.env.VITE_SUPABASE_URL,
   VITE_SUPABASE_PUBLISHABLE_KEY:import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
 });
