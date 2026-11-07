@@ -1,0 +1,37 @@
+{
+  "name": "cada-hora-cuenta",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:ui": "vite --host 127.0.0.1 --port 1420 --strictPort",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "test": "node scripts/python.mjs -m pytest tests -q",
+    "examples": "node scripts/python.mjs scripts/generate_examples.py",
+    "sidecar": "node scripts/build-sidecar.mjs",
+    "tauri": "tauri",
+    "desktop:dev": "npm run sidecar && tauri dev",
+    "desktop:build": "npm run sidecar && tauri build"
+  },
+  "dependencies": {
+    "@fontsource/dm-sans": "5.2.8",
+    "@fontsource/manrope": "5.2.8",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-dialog": "2.8.4",
+    "@tauri-apps/plugin-fs": "2.7.1",
+    "lucide-react": "1.70.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@tauri-apps/cli": "2.12.4",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.2.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.6"
+  }
+}

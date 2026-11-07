@@ -1,0 +1,118 @@
+{
+  "year": 2026,
+  "management_pct": 0.9,
+  "legal_change": "2026-05-01",
+  "legal_cap_before": 44,
+  "legal_cap_after": 42,
+  "max_assignments_over_30": 2,
+  "assignments": {
+    "Líder de equipo": {
+      "weekly_hours": 2,
+      "approval_required": false
+    },
+    "Tutor docente": {
+      "weekly_hours": 1,
+      "approval_required": false
+    },
+    "Comité nacional": {
+      "weekly_hours": 0.5,
+      "approval_required": true
+    }
+  },
+  "roles": {
+    "Kinesiología": {
+      "minutes_direct": 30,
+      "minutes_indirect": 30,
+      "group_pct": 0,
+      "patients_group": 4,
+      "bands": {
+        "40+": [
+          0.65,
+          0.25,
+          0.1
+        ],
+        "22-40": [
+          0.7,
+          0.25,
+          0.05
+        ],
+        "0-22": [
+          0.75,
+          0.25,
+          0
+        ]
+      }
+    },
+    "Terapia ocupacional": {
+      "minutes_direct": 40,
+      "minutes_indirect": 30,
+      "group_pct": 0,
+      "patients_group": 4,
+      "bands": {
+        "40+": [
+          0.65,
+          0.25,
+          0.1
+        ],
+        "22-40": [
+          0.7,
+          0.25,
+          0.05
+        ],
+        "0-22": [
+          0.75,
+          0.25,
+          0
+        ]
+      }
+    },
+    "Psicología": {
+      "minutes_direct": 45,
+      "minutes_indirect": 30,
+      "group_pct": 0,
+      "patients_group": 4,
+      "bands": {
+        "40+": [
+          0.65,
+          0.25,
+          0.1
+        ],
+        "22-40": [
+          0.7,
+          0.25,
+          0.05
+        ],
+        "0-22": [
+          0.75,
+          0.25,
+          0
+        ]
+      }
+    },
+    "Educación": {
+      "minutes_direct": 60,
+      "minutes_indirect": 30,
+      "group_pct": 0.2,
+      "patients_group": 4,
+      "bands": {
+        "40+": [
+          0.65,
+          0.25,
+          0.1
+        ],
+        "22-40": [
+          0.7,
+          0.25,
+          0.05
+        ],
+        "0-22": [
+          0.75,
+          0.25,
+          0
+        ]
+      }
+    }
+  },
+  "calendar": [],
+  "group_overrides": []
+}

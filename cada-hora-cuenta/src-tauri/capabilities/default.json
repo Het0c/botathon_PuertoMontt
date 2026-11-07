@@ -1,0 +1,1 @@
+{"$schema":"../gen/schemas/desktop-schema.json","identifier":"main","description":"Ventana local; guarda únicamente archivos elegidos en el diálogo.","windows":["main"],"permissions":["core:default","dialog:allow-save","fs:allow-write-file"]}

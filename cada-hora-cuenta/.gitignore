@@ -1,0 +1,17 @@
+node_modules/
+.venv/
+dist/
+build/
+work/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.tsbuildinfo
+*.spec
+*.sqlite3*
+src-tauri/target/
+src-tauri/binaries/
+.env*
+!.env.example
+test-results/
+playwright-report/
