@@ -5,6 +5,7 @@ from pathlib import Path
 from urllib.request import Request,urlopen
 from urllib.error import HTTPError
 from .kit_teleton import KitError,load_kit,validate_parameters,digest
+from .contract import validate_document
 
 class Service:
     def __init__(self,directory,token,supabase_url='',supabase_key='',supabase_access_token=''):
@@ -38,16 +39,21 @@ class Service:
                     kit=load_kit(data)
                     # Reapply an explicitly edited draft to later reports, not old fictitious defaults.
                     if self.state.get('parameters_edited'):kit['parameters']=self.state['parameters'];kit['parameters_version']=digest(kit['parameters'])
+                    signature=digest({'source':kit['source_hash'],'params':kit['parameters_version']})
+                    if self.state.get('latest',{}).get('input_signature')==signature:return {**copy.deepcopy(self.state['latest']),'status':'reused'}
                     result=self.compute(kit)
                 elif 'document' in payload:
-                    result={'document':payload['document'],'status':'calculated','warnings':[],'changes':[]}
+                    document=validate_document(payload['document']);signature=digest(document)
+                    if self.state.get('latest',{}).get('input_signature')==signature:return {**copy.deepcopy(self.state['latest']),'status':'reused'}
+                    result={'document':document,'status':'calculated','warnings':[],'changes':[]}
                     kit=None
                 else:raise KitError('Se requiere kit_base64 o document')
                 revision=None
                 if result.get('document') and session.get('remote_token'):
+                    if kit:self.remote('/rest/v1/rpc/save_calculation_parameters',session['remote_token'],{'p_version':kit['parameters_version'],'p_parameters':kit['parameters']})
                     revision=self.remote('/rest/v1/rpc/submit_plan_revision',session['remote_token'],{'p_payload':result['document'],'p_source_label':str(payload.get('filename') or 'Blue Prism')[:120]})
                 self.state['sequence']+=1
-                result.update(run_id=run_id,version=revision['version'] if revision else self.state['sequence'],
+                result.update(input_signature=signature,run_id=run_id,version=revision['version'] if revision else self.state['sequence'],
                     revision_id=revision['id'] if revision else None,published=False,revision_status=revision['status'] if revision else 'local_draft',
                     source='supabase' if revision else 'vm',created_at=dt.datetime.now(dt.timezone.utc).isoformat())
                 if kit:self.state.update(kit=kit,parameters=kit['parameters'])
@@ -58,39 +64,47 @@ class Service:
             except Exception as exc:
                 self.state=original
                 errors=exc.errors if isinstance(exc,KitError) else [{'message':type(exc).__name__+': fallo de cálculo o publicación'}]
-                self.state['runs'].append({'run_id':run_id,'status':'rejected','errors':errors,'actor':session['actor']});self.state['runs']=self.state['runs'][-100:];self.save()
+                self.state['runs'].append({'run_id':run_id,'status':'rejected','errors':errors,'actor':session['actor'],'created_at':dt.datetime.now(dt.timezone.utc).isoformat()});self.state['runs']=self.state['runs'][-100:];self.save()
                 raise
     def compute(self,kit):
         if importlib.util.find_spec('server.domain'):
             from .domain import calculate
-            return calculate(kit,previous=self.state.get('latest'))
+            result=calculate(kit,previous=self.state.get('latest'))
+            from .validation_report import compare_reference
+            validation=compare_reference(kit,result)
+            result['validation']={k:v for k,v in validation.items() if k!='cases'}
+            return result
         return {'status':'normalized','stage':'adapter','counts':kit['counts'],'warnings':kit['warnings'],'professionals':kit['professionals']}
     def parameters(self):
         if 'parameters' not in self.state:raise KitError('Primero se debe procesar el Excel plano del kit')
         return {'params':self.state['parameters'],'hash':digest(self.state['parameters']),'history':self.state['parameters_history'][-20:]}
-    def edit_parameters(self,params,actor):
+    def edit_parameters(self,params,session):
         with self.lock:
             p=validate_parameters(params);h=digest(p)
-            self.state['parameters_history'].append({'hash':h,'actor':actor,'date':dt.datetime.now(dt.timezone.utc).isoformat()})
+            if session.get('remote_token'):self.remote('/rest/v1/rpc/save_calculation_parameters',session['remote_token'],{'p_version':h,'p_parameters':p})
+            self.state['parameters_history'].append({'hash':h,'actor':session['actor'],'date':dt.datetime.now(dt.timezone.utc).isoformat()})
+            self.state.setdefault('parameter_sets',{})[h]=p
             self.state.update(parameters=p,parameters_edited=True);self.save();return self.parameters()
     def recalculate(self,session):
         with self.lock:
             if 'kit' not in self.state:raise KitError('Primero se debe procesar el kit')
             kit=copy.deepcopy(self.state['kit']);kit['parameters']=self.state['parameters'];kit['parameters_version']=digest(kit['parameters'])
             # Keep the same durable batch path and remote review semantics.
-            previous=copy.deepcopy(self.state);result=self.compute(kit);self.state['kit']=kit
+            previous=copy.deepcopy(self.state);signature=digest({'source':kit['source_hash'],'params':kit['parameters_version']})
+            if self.state.get('latest',{}).get('input_signature')==signature:return {**copy.deepcopy(self.state['latest']),'status':'reused'}
+            result=self.compute(kit);self.state['kit']=kit
             try:
                 result.update(status='calculated')
                 revision=self.remote('/rest/v1/rpc/submit_plan_revision',session['remote_token'],{'p_payload':result['document'],'p_source_label':'Recálculo de parámetros'}) if session.get('remote_token') else None
-                self.state['sequence']+=1;result.update(run_id=str(uuid.uuid4()),version=revision['version'] if revision else self.state['sequence'],revision_id=revision['id'] if revision else None,published=False,revision_status=revision['status'] if revision else 'local_draft',source='supabase' if revision else 'vm',created_at=dt.datetime.now(dt.timezone.utc).isoformat())
-                self.state['latest']=result;self.save();return result
+                self.state['sequence']+=1;result.update(input_signature=signature,run_id=str(uuid.uuid4()),version=revision['version'] if revision else self.state['sequence'],revision_id=revision['id'] if revision else None,published=False,revision_status=revision['status'] if revision else 'local_draft',source='supabase' if revision else 'vm',created_at=dt.datetime.now(dt.timezone.utc).isoformat())
+                self.state['latest']=result;self.state['runs'].append({'run_id':result['run_id'],'status':'calculated','version':result['version'],'actor':session['actor'],'created_at':result['created_at']});self.state['runs']=self.state['runs'][-100:];self.save();return result
             except Exception:self.state=previous;raise
 
 def handler(service,origins):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def send(self,code,data):
-            raw=json.dumps(data,ensure_ascii=False,allow_nan=False).encode();self.send_response(code)
+            raw=b'' if code==204 else json.dumps(data,ensure_ascii=False,allow_nan=False).encode();self.send_response(code)
             self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store')
             origin=self.headers.get('Origin')
             if origin in origins:self.send_header('Access-Control-Allow-Origin',origin);self.send_header('Vary','Origin')
@@ -115,7 +129,7 @@ def handler(service,origins):
                 path=self.path.split('?')[0]
                 if path=='/api/health' and self.command=='GET':result={'status':'ok','storage':'supabase' if service.supabase_url else 'local-draft','actor':session['actor']}
                 elif path=='/api/parameters' and self.command=='GET':result=service.parameters()
-                elif path=='/api/parameters' and self.command=='PUT':result=service.edit_parameters(body.get('params'),session['actor'])
+                elif path=='/api/parameters' and self.command=='PUT':result=service.edit_parameters(body.get('params'),session)
                 elif path=='/api/batches' and self.command=='POST':result=service.batch(body,session)
                 elif path=='/api/recalculate' and self.command=='POST':result=service.recalculate(session)
                 elif path=='/api/latest' and self.command=='GET':result=service.state.get('latest')

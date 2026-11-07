@@ -90,6 +90,7 @@ def load_kit(source):
     finally:wb.close()
     if errors:raise KitError(errors[:100])
     params={name:rows for name,rows in tables.items() if name.startswith('Param_')}
+    params['Param_Semanas_Instituto']=[]
     params['politicas']={'TOPE_ANTES_MAYO':44,'TOPE_DESDE_MAYO':42,'MES_CAMBIO_LEGAL':5,
         'REDONDEO_MENSUAL':'FLOOR','REDONDEO_META':'FLOOR','REDONDEO_GRUPAL':'FLOOR',
         'PROYECTAR_ULTIMO_MES':True,'REPARTO_DIAS_EXTRA':'segundo_semestre',
@@ -129,10 +130,18 @@ def validate_parameters(raw):
     if not isinstance(p,dict):raise KitError('Se requiere objeto de parámetros')
     for name in ['Param_Generales','Param_Distribucion_Cargo','Param_Semanas_Habiles','Param_Institutos','politicas']:
         if name not in p:raise KitError('Falta '+name)
+    for name,rows in p.items():
+        if name.startswith('Param_') and (not isinstance(rows,list) or any(not isinstance(r,dict) for r in rows)):raise KitError('Tabla de parámetros inválida: '+name)
+    if not isinstance(p['politicas'],dict):raise KitError('Políticas inválidas')
     g={r.get('Parametro'):r.get('Valor') for r in p['Param_Generales']}
     for key in ['META_GESTION','UMBRAL_TRAMO_1','UMBRAL_TRAMO_2','MIN_ESTANDAR_INDIRECTA','MAX_ASIGNACIONES_ESPECIALES','MIN_HS_PARA_ASIGNACION','MESES_2DO_SEMESTRE']:
         if not finite(g.get(key)):raise KitError('Parámetro numérico requerido: '+key)
-    if not 0<=g['META_GESTION']<=1 or not 0<g['UMBRAL_TRAMO_2']<g['UMBRAL_TRAMO_1'] or g['MIN_ESTANDAR_INDIRECTA']<=0 or g['MESES_2DO_SEMESTRE']!=6:raise KitError('Meta, umbrales, minutos o prorrateo inválidos')
+    if not 0<=g['META_GESTION']<=1 or not 0<g['UMBRAL_TRAMO_2']<g['UMBRAL_TRAMO_1'] or g['MIN_ESTANDAR_INDIRECTA']<=0 or not 1<=g['MESES_2DO_SEMESTRE']<=12 or g['MESES_2DO_SEMESTRE']!=int(g['MESES_2DO_SEMESTRE']):raise KitError('Meta, umbrales, minutos o prorrateo inválidos')
+    for key,value in g.items():
+        if key.startswith('PCT_') and (not finite(value) or not 0<=value<=1):raise KitError('Porcentaje general inválido: '+key)
+        if key.startswith('FACTOR_') and (not finite(value) or not 0<=value<=10):raise KitError('Factor general inválido: '+key)
+    for name in ['MAX_ASIGNACIONES_ESPECIALES','MIN_HS_PARA_ASIGNACION']:
+        if g[name]<0 or g[name]>44:raise KitError('Límite de asignaciones inválido')
     seen=set()
     for r in p['Param_Distribucion_Cargo']:
         key=(canonical(r.get('Cargo')),r.get('Tramo_Horas'))
@@ -147,6 +156,11 @@ def validate_parameters(raw):
         if r.get('Mes') in months or r.get('Mes') not in range(1,13) or not finite(r.get('Semanas_Habiles')) or not 0<=r['Semanas_Habiles']<=5:raise KitError('Calendario mensual inválido')
         months.add(r['Mes'])
     if len(months)!=12:raise KitError('Se requieren los doce meses de calendario')
+    regional_seen=set()
+    for r in p.get('Param_Semanas_Instituto',[]):
+        k=(r.get('IT'),r.get('Mes'))
+        if k in regional_seen or not finite(r.get('IT')) or r.get('Mes') not in range(1,13) or not finite(r.get('Semanas_Habiles')) or not 0<=r['Semanas_Habiles']<=5:raise KitError('Calendario regional inválido')
+        regional_seen.add(k)
     for r in p.get('Param_Asignaciones',[]):
         if r.get('Horas_Semana') is not None and (not finite(r['Horas_Semana']) or not 0<=r['Horas_Semana']<=44):raise KitError('Horas de asignación inválidas')
     for r in p.get('Param_Factor_Grupal',[]):
@@ -158,5 +172,10 @@ def validate_parameters(raw):
         if pol.get(k) not in ('FLOOR','HALF_UP'):raise KitError('Política de redondeo inválida')
     for k in ['TOPE_ANTES_MAYO','TOPE_DESDE_MAYO']:
         if not finite(pol.get(k)) or not 0<pol[k]<=44:raise KitError('Tope de jornada inválido')
+    for flag in ['PROYECTAR_ULTIMO_MES','COLACION_EN_CONTRATO']:
+        if not isinstance(pol.get(flag),bool):raise KitError('Política booleana inválida: '+flag)
+    if pol.get('REPARTO_DIAS_EXTRA') not in ('segundo_semestre','todo_anio'):raise KitError('Reparto de días extra inválido')
+    if not isinstance(pol.get('INSTITUTOS_GRUPO_MAYOR'),list) or any(not finite(v) or v!=int(v) for v in pol['INSTITUTOS_GRUPO_MAYOR']):raise KitError('Institutos grupales inválidos')
+    if not isinstance(pol.get('ALERTAS_BLOQUEANTES'),list) or any(not isinstance(v,str) for v in pol['ALERTAS_BLOQUEANTES']):raise KitError('Alertas bloqueantes inválidas')
     if pol.get('MES_CAMBIO_LEGAL') not in range(1,13):raise KitError('Mes de cambio legal inválido')
     return p

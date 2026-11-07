@@ -30,6 +30,9 @@ def main():
                 result={k:v for k,v in result.items() if k!='document'}
                 result.update(run_id=run_id,status='calculated',version=None,published=False)
         else:raise KitError('--manifest requiere --api-url para registrar la revisión en la aplicación')
+        if args.api_url:
+            if args.output and result.get('document'):Path(args.output).write_text(json.dumps(result['document'],ensure_ascii=False,indent=2),encoding='utf-8')
+            result={k:v for k,v in result.items() if k not in ('document','details','input_months','report_changes')}
         code=0
     except KitError as e:result={'status':'rejected','run_id':run_id,'version':None,'errors':e.errors};code=2
     except urllib.error.HTTPError as e:

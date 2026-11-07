@@ -24,6 +24,7 @@ jobs:
       run:
         working-directory: cada-hora-cuenta
     env:
+      VITE_CALC_API_URL: ${{ vars.VITE_CALC_API_URL }}
       VITE_DATA_MODE: ${{ vars.VITE_DATA_MODE || 'demo' }}
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
@@ -34,6 +35,11 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: cada-hora-cuenta/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r server/requirements.txt
+      - run: python -m unittest discover -s tests_python -v
       - run: npm ci
       - run: npm test
       - run: npm run build
