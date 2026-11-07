@@ -5,7 +5,7 @@ La integración está implementada en el código. No se ha creado ni modificado 
 ## Preparación por el administrador
 
 1. Crear o seleccionar el proyecto Supabase del equipo.
-2. Aplicar una vez `supabase/migrations/202611070001_plan_reviews.sql` con el SQL Editor o el CLI de Supabase.
+2. Aplicar en orden las migraciones de `supabase/migrations/` con el SQL Editor o el CLI de Supabase.
 3. Crear/invitar usuarios desde Authentication. La web usa correo y contraseña, sin registro público. Completar la invitación y establecer la contraseña antes de entrar.
 4. Dar de alta solo a las cuentas del equipo en `public.plan_members` mediante SQL administrativo. Ejemplo, sustituyendo el UUID por uno que ya exista en `auth.users`:
 
@@ -54,3 +54,11 @@ No se usa una clave de servicio en el frontend. Si más adelante Python envía r
 ## Demostración sin proyecto
 
 Con `VITE_DATA_MODE=demo`, el repositorio simulado guarda revisiones en memoria y lo indica en pantalla. Recargar reinicia los datos; no es persistencia compartida y no escribe en Supabase. Si se selecciona `supabase` y falta configuración o falla la conexión, no se cambia silenciosamente a demo.
+
+## Integración del cálculo del kit (v0.3)
+
+Aplicar también `202611070002_calculation_parameters.sql`. Añade `plan_parameter_sets`, versiones de parámetros inmutables y su RPC de auditoría. Python valida las reglas; PostgreSQL controla acceso, inmutabilidad del identificador y registra la huella propia del contenido. Los clientes no modifican la tabla directamente.
+
+La API necesita `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY` en **el servidor**, además de las variables públicas del frontend. Para llamadas de la web, el JWT de su sesión se verifica contra Supabase y se reenvía a los RPC con esa identidad. Para Blue Prism bajo token local, configurar en el proceso servidor `BOTATHON_SUPABASE_ACCESS_TOKEN` con una sesión temporal de una cuenta editor/admin. Si no se configura, el resultado es solo `local_draft` y no se afirma que se publicó una revisión remota. Renovar la sesión al expirar; no poner ese JWT en el repo, argumentos de procesos ni logs.
+
+El rol de editor guarda parámetros y crea revisiones; reviewer/admin aprueba en la web. La actualización local de un borrador de parámetros y su registro remoto no es una transacción distribuida: si un fallo de disco sucede después de registrarlo en Supabase, el administrador debe reconciliar el borrador de la VM. La aprobación del plan sí conserva su transacción PostgreSQL.
